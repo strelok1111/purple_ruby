@@ -390,6 +390,12 @@ static void sighandler(int sig)
 static VALUE init(int argc, VALUE* argv, VALUE self)
 {
   VALUE debug, path;
+  const char *prefs_path = NULL;
+  
+  if( rb_cv_get( self, "@@prefs_path" ) != Qnil ) {
+    prefs_path = RSTRING_PTR( rb_cv_get( self, "@@prefs_path" ) );
+  }
+  
   rb_scan_args(argc, argv, "02", &debug, &path);
 
   signal(SIGCHLD, SIG_IGN);
@@ -414,13 +420,17 @@ static VALUE init(int argc, VALUE* argv, VALUE self)
   if (!purple_core_init(UI_ID)) {
 		rb_raise(rb_eRuntimeError, "libpurple initialization failed");
 	}
-
+  
+  purple_util_set_user_dir( (const char *) prefs_path );
+  
   /* Create and load the buddylist. */
   purple_set_blist(purple_blist_new());
   purple_blist_load();
-
+  
   /* Load the preferences. */
   purple_prefs_load();
+  purple_prefs_set_bool( "/purple/logging/log_ims", FALSE );
+  purple_prefs_set_bool( "/purple/logging/log_chats", FALSE );
 
   /* Load the pounces. */
   purple_pounces_load();
@@ -924,6 +934,11 @@ static VALUE account_get_buddies_list( VALUE self ) {
   return buddies;
 }
 
+static VALUE set_prefs_path( VALUE self, VALUE path ) {
+  rb_cv_set( self, "@@prefs_path", path );
+  return Qnil;
+}
+
 // PurpleRuby::Buddy
 static VALUE buddy_get_name( VALUE self ) {
   PurpleBuddy *buddy = NULL;
@@ -964,6 +979,7 @@ void Init_purple_ruby()
   rb_define_singleton_method(cPurpleRuby, "login", login, 3);
   rb_define_singleton_method(cPurpleRuby, "main_loop_run", main_loop_run, 0);
   rb_define_singleton_method(cPurpleRuby, "main_loop_stop", main_loop_stop, 0);
+  rb_define_singleton_method(cPurpleRuby, "prefs_path=", set_prefs_path, 1);
   
   rb_define_const(cPurpleRuby, "NOTIFY_MSG_ERROR", INT2NUM(PURPLE_NOTIFY_MSG_ERROR));
   rb_define_const(cPurpleRuby, "NOTIFY_MSG_WARNING", INT2NUM(PURPLE_NOTIFY_MSG_WARNING));
