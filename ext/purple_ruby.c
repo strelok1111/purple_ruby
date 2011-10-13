@@ -861,18 +861,19 @@ static VALUE set_public_alias(VALUE self, VALUE alias)
   PURPLE_ACCOUNT( self, account );
   
   if (!gc) {
-    return Qfalse;
+    purple_account_set_public_alias( account, RSTRING_PTR( alias ), NULL, NULL );
+    return Qnil;
   }
 
   prpl = purple_connection_get_prpl( gc );
   if (!g_module_symbol (prpl->handle, "set_alias", (void *) &set_alias)) {
     purple_account_set_public_alias( account, RSTRING_PTR( alias ), NULL, NULL );
-    return Qfalse;
+    return Qnil;
   }
 
   set_alias( gc, RSTRING_PTR( alias ) );
   
-  return Qtrue;
+  return Qnil;
 }
 
 static VALUE acc_delete(VALUE self)
