@@ -939,7 +939,7 @@ static VALUE set_prefs_path( VALUE self, VALUE path ) {
   return Qnil;
 }
 
-static VALUE set_prefs_path( VALUE self ) {
+static VALUE get_prefs_path( VALUE self ) {
   return rb_cv_get( self, "@@prefs_path" );
 }
 
