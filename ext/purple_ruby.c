@@ -57,6 +57,13 @@
 #define PURPLE_GLIB_READ_COND  (G_IO_IN | G_IO_HUP | G_IO_ERR)
 #define PURPLE_GLIB_WRITE_COND (G_IO_OUT | G_IO_HUP | G_IO_ERR | G_IO_NVAL)
 
+// Ruby to C
+#define PURPLE_ACCOUNT(account, account_pointer) Data_Get_Struct( account, PurpleAccount, account_pointer )
+#define PURPLE_BUDDY( buddy, buddy_pointer) Data_Get_Struct( buddy, PurpleBuddy, buddy_pointer )
+
+// C to Ruby
+#define RB_BLIST_BUDDY(purple_buddy_pointer) Data_Wrap_Struct(cBuddy, NULL, NULL, purple_buddy_pointer)
+
 typedef struct _PurpleGLibIOClosure {
 	PurpleInputFunction function;
 	guint result;
@@ -129,6 +136,9 @@ static PurpleEventLoopUiOps glib_eventloops =
 static VALUE cPurpleRuby;
 static VALUE cConnectionError;
 VALUE cAccount;
+static VALUE cBuddy;
+static VALUE cStatus;
+
 const char* UI_ID = "purplegw";
 static GMainLoop *main_loop = NULL;
 static GHashTable* data_hash_table = NULL;
@@ -769,8 +779,11 @@ static VALUE list_protocols(VALUE self)
 
 static VALUE add_buddy(VALUE self, VALUE buddy)
 {
-  PurpleAccount *account;
+  PurpleAccount *account = NULL;
+  PurpleConnection *gc = NULL;
+  
   Data_Get_Struct(self, PurpleAccount, account);
+  gc = purple_account_get_connection( account );
   
 	PurpleBuddy* pb = purple_buddy_new(account, RSTRING_PTR(buddy), NULL);
   
@@ -784,6 +797,8 @@ static VALUE add_buddy(VALUE self, VALUE buddy)
   
   purple_blist_add_buddy(pb, NULL, grp, NULL);
   purple_account_add_buddy(account, pb);
+  serv_add_permit( gc, RSTRING_PTR(buddy) );
+  
   return Qtrue;
 }
 
@@ -821,12 +836,113 @@ static VALUE has_buddy(VALUE self, VALUE buddy)
   }
 }
 
+static VALUE set_public_alias(VALUE self, VALUE alias)
+{
+  PurpleAccount *account;
+  Data_Get_Struct(self, PurpleAccount, account);
+  purple_account_set_public_alias( account, RSTRING_PTR(alias), NULL, NULL );
+  
+  return Qnil;
+}
+
 static VALUE acc_delete(VALUE self)
 {
   PurpleAccount *account;
   Data_Get_Struct(self, PurpleAccount, account);
   purple_accounts_delete(account);
   return Qnil;
+}
+
+static VALUE set_avatar_from_file( VALUE self, VALUE filepath ) {
+  FILE *file = NULL;
+  size_t file_len = 0;
+  unsigned char *file_data = NULL;
+  char *filename = NULL;
+  unsigned char *icon_data = NULL;
+  PurpleAccount *account = NULL;
+  
+  PURPLE_ACCOUNT( self, account );
+  
+  filename = RSTRING_PTR( filepath );
+  
+  file = fopen( filename, "rb" );
+  
+  if( file != NULL ) {
+    // get file size
+    fseek( file, 0, SEEK_END );
+    file_len = ftell( file );
+    fseek( file, 0, SEEK_SET );
+    // read data
+    file_data = g_malloc( file_len );
+    fread( file_data, file_len, 1, file );
+
+    // close file
+    fclose( file );
+  }
+  else {
+    rb_raise( rb_eRuntimeError, "Error when opening picture: %s", filename );
+  }
+
+  // set filename
+  // purple_account_set_buddy_icon_path( account, filename );
+
+  // set account icon
+  icon_data = g_malloc( file_len );
+  memcpy( icon_data, file_data, file_len );
+  purple_buddy_icons_set_account_icon( account, icon_data, file_len );
+  
+  return Qtrue;
+}
+
+static VALUE account_is_connected( VALUE self ) {
+  PurpleAccount *account = NULL;
+  PURPLE_ACCOUNT( self, account );
+  
+  if( purple_account_is_connected( account ) == TRUE ) {
+    return Qtrue;
+  }
+  else {
+    return Qfalse;
+  }
+}
+
+static VALUE account_get_buddies_list( VALUE self ) {
+  PurpleAccount *account = NULL;
+  PurpleBuddy *buddy = NULL;
+  GList *iter = NULL;
+  VALUE buddies = rb_ary_new();
+  
+  PURPLE_ACCOUNT( self, account );
+  
+  for( iter = (GList *) purple_find_buddies( account, NULL ); iter; iter = iter->next ) {
+    buddy = iter->data;
+    if( buddy != NULL && buddy->name != NULL ) {
+      rb_ary_push( buddies, RB_BLIST_BUDDY( buddy ) );
+    }
+  }
+  
+  return buddies;
+}
+
+// PurpleRuby::Buddy
+static VALUE buddy_get_name( VALUE self ) {
+  PurpleBuddy *buddy = NULL;
+  
+  PURPLE_BUDDY( self, buddy );
+  
+  return rb_str_new2( purple_buddy_get_name( buddy ) );
+}
+
+static VALUE buddy_get_status( VALUE self ) {
+  PurpleBuddy *buddy = NULL;
+  PurpleStatus *status = NULL;
+  PurpleStatusType *type = NULL;
+  
+  PURPLE_BUDDY( self, buddy );
+  status = purple_presence_get_active_status( purple_buddy_get_presence( buddy ) );
+  type = purple_status_get_type( status );
+  
+  return INT2NUM( purple_status_type_get_primitive( type ) );
 }
 
 void Init_purple_ruby() 
@@ -873,9 +989,13 @@ void Init_purple_ruby()
   rb_define_const(cConnectionError, "OTHER_ERROR", INT2NUM(PURPLE_CONNECTION_ERROR_OTHER_ERROR));  
   
   cAccount = rb_define_class_under(cPurpleRuby, "Account", rb_cObject);
+  rb_define_method(cAccount, "connected?", account_is_connected, 0);
+  rb_define_method(cAccount, "buddies", account_get_buddies_list, 0);
   rb_define_method(cAccount, "send_im", send_im, 2);
   rb_define_method(cAccount, "common_send", common_send, 2);
   rb_define_method(cAccount, "username", username, 0);
+  rb_define_method(cAccount, "alias=", set_public_alias, 1);
+  rb_define_method(cAccount, "avatar=", set_avatar_from_file, 1);
   rb_define_method(cAccount, "protocol_id", protocol_id, 0);
   rb_define_method(cAccount, "protocol_name", protocol_name, 0);
   rb_define_method(cAccount, "get_bool_setting", get_bool_setting, 2);
@@ -885,4 +1005,18 @@ void Init_purple_ruby()
   rb_define_method(cAccount, "has_buddy?", has_buddy, 1);
   rb_define_method(cAccount, "delete", acc_delete, 0);
   rb_define_method(cAccount, "logout", logout, 0);
+  
+  cBuddy = rb_define_class_under(cPurpleRuby, "Buddy", rb_cObject);
+  rb_define_method( cBuddy, "name", buddy_get_name, 0 );
+  rb_define_method( cBuddy, "status", buddy_get_status, 0 );
+  
+  cStatus = rb_define_class_under( cPurpleRuby, "Status", rb_cObject );
+  rb_define_const(cStatus, "STATUS_UNSET", INT2NUM(PURPLE_STATUS_UNSET));
+  rb_define_const(cStatus, "STATUS_OFFLINE", INT2NUM(PURPLE_STATUS_OFFLINE));
+  rb_define_const(cStatus, "STATUS_AVAILABLE", INT2NUM(PURPLE_STATUS_AVAILABLE));
+  rb_define_const(cStatus, "STATUS_UNAVAILABLE", INT2NUM(PURPLE_STATUS_UNAVAILABLE));
+  rb_define_const(cStatus, "STATUS_INVISIBLE", INT2NUM(PURPLE_STATUS_INVISIBLE));
+  rb_define_const(cStatus, "STATUS_AWAY", INT2NUM(PURPLE_STATUS_AWAY));
+  rb_define_const(cStatus, "STATUS_EXTENDED_AWAY", INT2NUM(PURPLE_STATUS_EXTENDED_AWAY));
+  rb_define_const(cStatus, "STATUS_MOBILE", INT2NUM(PURPLE_STATUS_MOBILE));
 }
