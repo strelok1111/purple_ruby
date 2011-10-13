@@ -814,8 +814,11 @@ static VALUE add_buddy(VALUE self, VALUE buddy)
 
 static VALUE remove_buddy(VALUE self, VALUE buddy)
 {
-  PurpleAccount *account;
+  PurpleAccount *account = NULL;
+  PurpleConnection *gc = NULL;
+  
   Data_Get_Struct(self, PurpleAccount, account);
+  gc = purple_account_get_connection( account );
   
 	PurpleBuddy* pb = purple_find_buddy(account, RSTRING_PTR(buddy));
 	if (NULL == pb) {
@@ -832,6 +835,8 @@ static VALUE remove_buddy(VALUE self, VALUE buddy)
 	
 	purple_blist_remove_buddy(pb);
 	purple_account_remove_buddy(account, pb, grp);
+  serv_rem_permit( gc, RSTRING_PTR( buddy ) );
+	
   return Qtrue;
 }
 
@@ -848,11 +853,26 @@ static VALUE has_buddy(VALUE self, VALUE buddy)
 
 static VALUE set_public_alias(VALUE self, VALUE alias)
 {
-  PurpleAccount *account;
-  Data_Get_Struct(self, PurpleAccount, account);
-  purple_account_set_public_alias( account, RSTRING_PTR(alias), NULL, NULL );
+  PurpleAccount *account = NULL;
+  PurpleConnection *gc = NULL;
+  PurplePlugin *prpl = NULL;
+  void (*set_alias) (PurpleConnection *gc, const char *alias);
   
-  return Qnil;
+  PURPLE_ACCOUNT( self, account );
+  
+  if (!gc) {
+    return Qfalse;
+  }
+
+  prpl = purple_connection_get_prpl( gc );
+  if (!g_module_symbol (prpl->handle, "set_alias", (void *) &set_alias)) {
+    purple_account_set_public_alias( account, RSTRING_PTR( alias ), NULL, NULL );
+    return Qfalse;
+  }
+
+  set_alias( gc, RSTRING_PTR( alias ) );
+  
+  return Qtrue;
 }
 
 static VALUE acc_delete(VALUE self)
@@ -895,11 +915,12 @@ static VALUE set_avatar_from_file( VALUE self, VALUE filepath ) {
 
   // set filename
   // purple_account_set_buddy_icon_path( account, filename );
-
+  
   // set account icon
   icon_data = g_malloc( file_len );
   memcpy( icon_data, file_data, file_len );
   purple_buddy_icons_set_account_icon( account, icon_data, file_len );
+  // purple_account_set_bool( account, "use-global-buddyicon", 1 );
   
   return Qtrue;
 }
