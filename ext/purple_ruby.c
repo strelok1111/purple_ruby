@@ -939,6 +939,10 @@ static VALUE set_prefs_path( VALUE self, VALUE path ) {
   return Qnil;
 }
 
+static VALUE set_prefs_path( VALUE self ) {
+  return rb_cv_get( self, "@@prefs_path" );
+}
+
 // PurpleRuby::Buddy
 static VALUE buddy_get_name( VALUE self ) {
   PurpleBuddy *buddy = NULL;
@@ -980,6 +984,7 @@ void Init_purple_ruby()
   rb_define_singleton_method(cPurpleRuby, "main_loop_run", main_loop_run, 0);
   rb_define_singleton_method(cPurpleRuby, "main_loop_stop", main_loop_stop, 0);
   rb_define_singleton_method(cPurpleRuby, "prefs_path=", set_prefs_path, 1);
+  rb_define_singleton_method(cPurpleRuby, "prefs_path", get_prefs_path, 0);
   
   rb_define_const(cPurpleRuby, "NOTIFY_MSG_ERROR", INT2NUM(PURPLE_NOTIFY_MSG_ERROR));
   rb_define_const(cPurpleRuby, "NOTIFY_MSG_WARNING", INT2NUM(PURPLE_NOTIFY_MSG_WARNING));
