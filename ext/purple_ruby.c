@@ -859,6 +859,7 @@ static VALUE set_public_alias(VALUE self, VALUE alias)
   void (*set_alias) (PurpleConnection *gc, const char *alias);
   
   PURPLE_ACCOUNT( self, account );
+  gc = purple_account_get_connection( account );
   
   if (!gc) {
     purple_account_set_public_alias( account, RSTRING_PTR( alias ), NULL, NULL );
