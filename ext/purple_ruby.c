@@ -943,6 +943,19 @@ static VALUE get_prefs_path( VALUE self ) {
   return rb_cv_get( self, "@@prefs_path" );
 }
 
+static VALUE account_send_typing( VALUE self, VALUE buddy_name ) {
+  PurpleAccount *account = NULL;
+  PurpleConnection *gc = NULL;
+  
+  PURPLE_ACCOUNT( self, account );
+  
+  gc = purple_account_get_connection( account );
+  
+  serv_send_typing( gc, RSTRING_PTR(buddy_name), PURPLE_TYPING );
+  
+  return Qtrue;
+}
+
 // PurpleRuby::Buddy
 static VALUE buddy_get_name( VALUE self ) {
   PurpleBuddy *buddy = NULL;
@@ -1013,6 +1026,7 @@ void Init_purple_ruby()
   rb_define_method(cAccount, "connected?", account_is_connected, 0);
   rb_define_method(cAccount, "buddies", account_get_buddies_list, 0);
   rb_define_method(cAccount, "send_im", send_im, 2);
+  rb_define_method(cAccount, "send_typing", account_send_typing, 1);
   rb_define_method(cAccount, "common_send", common_send, 2);
   rb_define_method(cAccount, "username", username, 0);
   rb_define_method(cAccount, "alias=", set_public_alias, 1);
