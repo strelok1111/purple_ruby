@@ -636,7 +636,7 @@ static VALUE watch_timer(VALUE self, VALUE delay)
 	set_callback(&timer_handler, "timer_handler");
 	if (timer_timeout != 0)
 		g_source_remove(timer_timeout);
-	timer_timeout = g_timeout_add(delay, do_timeout, timer_handler);
+	timer_timeout = g_timeout_add_full( G_PRIORITY_HIGH, delay, do_timeout, timer_handler, NULL );
 	return delay;
 }
 
@@ -664,14 +664,14 @@ static VALUE logout(VALUE self)
   return Qnil;
 }
 
-static VALUE main_loop_run(VALUE self)
+static void main_loop_run2()
 {
   main_loop = g_main_loop_new(NULL, FALSE);
   g_main_loop_run(main_loop);
+  purple_core_quit();
   
 #ifdef DEBUG_MEM_LEAK
   printf("QUIT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-  purple_core_quit();
   if (im_handler == Qnil) rb_gc_unregister_address(&im_handler);
   if (signed_on_handler == Qnil) rb_gc_unregister_address(&signed_on_handler);
   if (signed_off_handler == Qnil) rb_gc_unregister_address(&signed_off_handler);
@@ -684,7 +684,10 @@ static VALUE main_loop_run(VALUE self)
   if (new_buddy_handler == Qnil) rb_gc_unregister_address(&new_buddy_handler);
   rb_gc_start();
 #endif
-  
+}
+
+static VALUE main_loop_run( VALUE self ) {
+  main_loop_run2();
   return Qnil;
 }
 
@@ -851,28 +854,31 @@ static VALUE has_buddy(VALUE self, VALUE buddy)
   }
 }
 
-static VALUE set_public_alias(VALUE self, VALUE alias)
+static VALUE set_public_alias(VALUE self, VALUE nickname)
 {
   PurpleAccount *account = NULL;
-  PurpleConnection *gc = NULL;
+  PurpleConnection *connection = NULL;
   PurplePlugin *prpl = NULL;
+  const char *alias = NULL;
   void (*set_alias) (PurpleConnection *gc, const char *alias);
   
-  PURPLE_ACCOUNT( self, account );
-  gc = purple_account_get_connection( account );
+  alias = RSTRING_PTR( nickname );
   
-  if (!gc) {
-    purple_account_set_public_alias( account, RSTRING_PTR( alias ), NULL, NULL );
+  PURPLE_ACCOUNT( self, account );
+  connection = purple_account_get_connection( account );
+  
+  if (!connection) {
+    purple_account_set_public_alias( account, alias, NULL, NULL );
     return Qnil;
   }
 
-  prpl = purple_connection_get_prpl( gc );
-  if (!g_module_symbol (prpl->handle, "set_alias", (void *) &set_alias)) {
-    purple_account_set_public_alias( account, RSTRING_PTR( alias ), NULL, NULL );
+  prpl = purple_connection_get_prpl( connection );
+  if (!g_module_symbol( prpl->handle, "set_alias", (void *) &set_alias ) ) {
+    // purple_account_set_public_alias( account, alias, NULL, NULL );
     return Qnil;
   }
 
-  set_alias( gc, RSTRING_PTR( alias ) );
+  set_alias( connection, alias );
   
   return Qnil;
 }
@@ -979,6 +985,30 @@ static VALUE account_send_typing( VALUE self, VALUE buddy_name ) {
   return Qtrue;
 }
 
+static VALUE set_personal_message( VALUE self, VALUE psm ) {
+  PurplePlugin *prpl = NULL;
+  PurpleAccount *account = NULL;
+  void (*set_psm) (PurpleConnection *gc, const char *psm);
+  PurpleConnection *gc = NULL;
+  
+  PURPLE_ACCOUNT( self, account );
+  
+  gc = purple_account_get_connection( account );
+  
+  if (!gc) {
+    return;
+  }
+
+  prpl = purple_connection_get_prpl( gc );
+  if (!g_module_symbol (prpl->handle, "msn_set_personal_message_cb", (void *) &set_psm)) {
+    return;
+  }
+
+  set_psm( gc, (const char *) RSTRING_PTR( psm ) );
+  
+  return Qnil;
+}
+
 // PurpleRuby::Buddy
 static VALUE buddy_get_name( VALUE self ) {
   PurpleBuddy *buddy = NULL;
@@ -1000,10 +1030,71 @@ static VALUE buddy_get_status( VALUE self ) {
   return INT2NUM( purple_status_type_get_primitive( type ) );
 }
 
+static gboolean call_rb_block_false( gpointer data ) {
+  VALUE block = data;
+  rb_funcall( block, CALL, 0, 0 );
+  return FALSE;
+}
+
+static gboolean call_rb_block_true( gpointer data ) {
+  VALUE block = data;
+  rb_funcall( block, CALL, 0, 0 );
+  return TRUE;
+}
+
+
+static VALUE defer_execute( VALUE self ) {
+  VALUE *rb_block = NULL;
+  
+  if (!rb_block_given_p()) {
+    rb_raise(rb_eArgError, "defer_execute: no block given");
+  }
+  
+  rb_block = rb_block_proc();
+  
+  g_idle_add( call_rb_block_false, rb_block );
+  
+  return Qtrue;
+}
+
+static VALUE add_periodic_timer( VALUE self, VALUE seconds ) {
+  VALUE *rb_block = NULL;
+  int secs = 0;
+  
+  secs = NUM2LONG( seconds );
+  
+  if (!rb_block_given_p()) {
+    rb_raise(rb_eArgError, "add_periodic_timer: no block given");
+  }
+  
+  rb_block = rb_block_proc();
+  
+  g_timeout_add( secs * 1000, call_rb_block_true, rb_block );
+  
+  return Qtrue;
+}
+
+static VALUE add_timer( VALUE self, VALUE seconds ) {
+  VALUE *rb_block = NULL;
+  int secs = 0;
+  
+  secs = NUM2LONG( seconds );
+  
+  if (!rb_block_given_p()) {
+    rb_raise(rb_eArgError, "add_timer: no block given");
+  }
+  
+  rb_block = rb_block_proc();
+  
+  g_timeout_add( secs * 1000, call_rb_block_false, rb_block );
+  
+  return Qtrue;
+}
+
 void Init_purple_ruby() 
 {
   CALL = rb_intern("call");
-
+  
   cPurpleRuby = rb_define_class("PurpleRuby", rb_cObject);
   rb_define_singleton_method(cPurpleRuby, "init", init, -1);
   rb_define_singleton_method(cPurpleRuby, "list_protocols", list_protocols, 0);
@@ -1021,6 +1112,9 @@ void Init_purple_ruby()
   rb_define_singleton_method(cPurpleRuby, "main_loop_stop", main_loop_stop, 0);
   rb_define_singleton_method(cPurpleRuby, "prefs_path=", set_prefs_path, 1);
   rb_define_singleton_method(cPurpleRuby, "prefs_path", get_prefs_path, 0);
+  rb_define_singleton_method(cPurpleRuby, "defer", defer_execute, 0);
+  rb_define_singleton_method(cPurpleRuby, "add_periodic_timer", add_periodic_timer, 1);
+  rb_define_singleton_method(cPurpleRuby, "add_timer", add_timer, 1);
   
   rb_define_const(cPurpleRuby, "NOTIFY_MSG_ERROR", INT2NUM(PURPLE_NOTIFY_MSG_ERROR));
   rb_define_const(cPurpleRuby, "NOTIFY_MSG_WARNING", INT2NUM(PURPLE_NOTIFY_MSG_WARNING));
@@ -1054,6 +1148,7 @@ void Init_purple_ruby()
   rb_define_method(cAccount, "username", username, 0);
   rb_define_method(cAccount, "alias=", set_public_alias, 1);
   rb_define_method(cAccount, "avatar=", set_avatar_from_file, 1);
+  rb_define_method(cAccount, "psm=", set_personal_message, 1);
   rb_define_method(cAccount, "protocol_id", protocol_id, 0);
   rb_define_method(cAccount, "protocol_name", protocol_name, 0);
   rb_define_method(cAccount, "get_bool_setting", get_bool_setting, 2);
