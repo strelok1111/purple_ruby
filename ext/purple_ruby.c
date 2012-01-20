@@ -1091,6 +1091,13 @@ static VALUE add_timer( VALUE self, VALUE seconds ) {
   return Qtrue;
 }
 
+static VALUE run_one_loop( VALUE self ) {
+  
+  g_main_context_iteration(NULL, 0);
+  
+  return Qnil;
+}
+
 void Init_purple_ruby() 
 {
   CALL = rb_intern("call");
@@ -1115,6 +1122,7 @@ void Init_purple_ruby()
   rb_define_singleton_method(cPurpleRuby, "defer", defer_execute, 0);
   rb_define_singleton_method(cPurpleRuby, "add_periodic_timer", add_periodic_timer, 1);
   rb_define_singleton_method(cPurpleRuby, "add_timer", add_timer, 1);
+  rb_define_singleton_method(cPurpleRuby, "run_one_loop", run_one_loop, 0);
   
   rb_define_const(cPurpleRuby, "NOTIFY_MSG_ERROR", INT2NUM(PURPLE_NOTIFY_MSG_ERROR));
   rb_define_const(cPurpleRuby, "NOTIFY_MSG_WARNING", INT2NUM(PURPLE_NOTIFY_MSG_WARNING));
