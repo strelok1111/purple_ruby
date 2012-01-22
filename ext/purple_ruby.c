@@ -21,6 +21,7 @@
 #include <libpurple/conversation.h>
 #include <libpurple/core.h>
 #include <libpurple/debug.h>
+#include <libpurple/blist.h>
 #include <libpurple/cipher.h>
 #include <libpurple/eventloop.h>
 #include <libpurple/ft.h>
@@ -152,6 +153,8 @@ static VALUE signed_off_handler = Qnil;
 static VALUE connection_error_handler = Qnil;
 static VALUE notify_message_handler = Qnil;
 static VALUE request_handler = Qnil;
+static VALUE blist_update_handler = Qnil;
+static VALUE blist_ready_handler = Qnil;
 static VALUE ipc_handler = Qnil;
 static VALUE timer_handler = Qnil;
 guint timer_timeout = 0;
@@ -261,6 +264,17 @@ static void write_conv(PurpleConversation *conv, const char *who, const char *al
   }
 }
 
+static void update_blist(PurpleBuddyList *list, PurpleBlistNode *node)
+{
+	if (blist_update_handler != Qnil && PURPLE_BLIST_NODE_IS_BUDDY(node)) {
+		PurpleBuddy *buddy = (PurpleBuddy *)node;
+		check_callback(blist_update_handler, "blist_update_handler");
+		VALUE args[2];
+		args[0] = RB_BLIST_BUDDY(buddy);
+		args[1] = Data_Wrap_Struct(cAccount, NULL, NULL, purple_buddy_get_account(buddy));
+		rb_funcall2(blist_update_handler, CALL, 2, args);		
+	}
+}
 static PurpleConversationUiOps conv_uiops = 
 {
 	NULL,                      /* create_conversation  */
@@ -282,6 +296,25 @@ static PurpleConversationUiOps conv_uiops =
 	NULL,
 	NULL,
 	NULL
+};
+
+static PurpleBlistUiOps blist_uiops = 
+{
+	NULL,
+	NULL,
+	NULL,
+	update_blist,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,                     
+	NULL,                      
+	NULL,                      
+	NULL,                      
+	NULL,                      
+	NULL,                      
+
 };
 
 static PurpleConnectionUiOps connection_ops = 
@@ -443,6 +476,13 @@ static VALUE watch_incoming_im(VALUE self)
   purple_conversations_set_ui_ops(&conv_uiops);
   set_callback(&im_handler, "im_handler");
   return im_handler;
+}
+
+static VALUE watch_blist_change(VALUE self)
+{
+  purple_blist_set_ui_ops(&blist_uiops);
+  set_callback(&blist_update_handler, "blist_update_handler");
+  return blist_update_handler;
 }
 
 static VALUE watch_notify_message(VALUE self)
@@ -1114,6 +1154,7 @@ void Init_purple_ruby()
   rb_define_singleton_method(cPurpleRuby, "watch_new_buddy", watch_new_buddy, 0);
   rb_define_singleton_method(cPurpleRuby, "watch_incoming_ipc", watch_incoming_ipc, 2);
   rb_define_singleton_method(cPurpleRuby, "watch_timer", watch_timer, 1);
+  rb_define_singleton_method(cPurpleRuby, "watch_blist_change", watch_blist_change, 0);
   rb_define_singleton_method(cPurpleRuby, "login", login, 3);
   rb_define_singleton_method(cPurpleRuby, "main_loop_run", main_loop_run, 0);
   rb_define_singleton_method(cPurpleRuby, "main_loop_stop", main_loop_stop, 0);
