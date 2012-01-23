@@ -59,7 +59,8 @@
 #define PURPLE_GLIB_WRITE_COND (G_IO_OUT | G_IO_HUP | G_IO_ERR | G_IO_NVAL)
 
 // Ruby to C
-#define PURPLE_ACCOUNT(account, account_pointer) Data_Get_Struct( account, PurpleAccount, account_pointer )
+#define PURPLE_ACCOUNT(account) get_account_from_ruby_object(account)
+
 #define PURPLE_BUDDY( buddy, buddy_pointer) Data_Get_Struct( buddy, PurpleBuddy, buddy_pointer )
 
 // C to Ruby
@@ -74,6 +75,12 @@ typedef struct _PurpleGLibIOClosure {
 static void purple_glib_io_destroy(gpointer data)
 {
 	g_free(data);
+}
+
+static PurpleAccount* get_account_from_ruby_object(VALUE acc){
+	PurpleAccount* account = NULL;
+	Data_Get_Struct( acc, PurpleAccount, account );
+	return purple_accounts_find(account->username,account->protocol_id);
 }
 
 static gboolean purple_glib_io_invoke(GIOChannel *source, GIOCondition condition, gpointer data)
@@ -691,7 +698,7 @@ static VALUE login(VALUE self, VALUE protocol, VALUE username, VALUE password)
   purple_account_set_enabled(account, UI_ID, TRUE);
   PurpleSavedStatus *status = purple_savedstatus_new(NULL, PURPLE_STATUS_AVAILABLE);
 	purple_savedstatus_activate(status);
-	
+	purple_accounts_add(account);
 	return Data_Wrap_Struct(cAccount, NULL, NULL, account);
 }
 
@@ -896,7 +903,7 @@ static VALUE has_buddy(VALUE self, VALUE buddy)
 
 static VALUE set_public_alias(VALUE self, VALUE nickname)
 {
-  PurpleAccount *account = NULL;
+  PurpleAccount *account = PURPLE_ACCOUNT(self);
   PurpleConnection *connection = NULL;
   PurplePlugin *prpl = NULL;
   const char *alias = NULL;
@@ -904,7 +911,6 @@ static VALUE set_public_alias(VALUE self, VALUE nickname)
   
   alias = RSTRING_PTR( nickname );
   
-  PURPLE_ACCOUNT( self, account );
   connection = purple_account_get_connection( account );
   
   if (!connection) {
@@ -937,9 +943,7 @@ static VALUE set_avatar_from_file( VALUE self, VALUE filepath ) {
   unsigned char *file_data = NULL;
   char *filename = NULL;
   unsigned char *icon_data = NULL;
-  PurpleAccount *account = NULL;
-  
-  PURPLE_ACCOUNT( self, account );
+  PurpleAccount *account = PURPLE_ACCOUNT(self);
   
   filename = RSTRING_PTR( filepath );
   
@@ -974,8 +978,7 @@ static VALUE set_avatar_from_file( VALUE self, VALUE filepath ) {
 }
 
 static VALUE account_is_connected( VALUE self ) {
-  PurpleAccount *account = NULL;
-  PURPLE_ACCOUNT( self, account );
+  PurpleAccount *account = PURPLE_ACCOUNT(self);
   
   if( purple_account_is_connected( account ) == TRUE ) {
     return Qtrue;
@@ -986,13 +989,10 @@ static VALUE account_is_connected( VALUE self ) {
 }
 
 static VALUE account_get_buddies_list( VALUE self ) {
-  PurpleAccount *account = NULL;
+  PurpleAccount *account = PURPLE_ACCOUNT(self);
   PurpleBuddy *buddy = NULL;
   GList *iter = NULL;
   VALUE buddies = rb_ary_new();
-  
-  PURPLE_ACCOUNT( self, account );
-  
   for( iter = (GList *) purple_find_buddies( account, NULL ); iter; iter = iter->next ) {
     buddy = iter->data;
     if( buddy != NULL && buddy->name != NULL ) {
@@ -1013,10 +1013,8 @@ static VALUE get_prefs_path( VALUE self ) {
 }
 
 static VALUE account_send_typing( VALUE self, VALUE buddy_name ) {
-  PurpleAccount *account = NULL;
+  PurpleAccount *account = PURPLE_ACCOUNT( self);
   PurpleConnection *gc = NULL;
-  
-  PURPLE_ACCOUNT( self, account );
   
   gc = purple_account_get_connection( account );
   
@@ -1027,11 +1025,9 @@ static VALUE account_send_typing( VALUE self, VALUE buddy_name ) {
 
 static VALUE set_personal_message( VALUE self, VALUE psm ) {
   PurplePlugin *prpl = NULL;
-  PurpleAccount *account = NULL;
+  PurpleAccount *account = PURPLE_ACCOUNT(self);
   void (*set_psm) (PurpleConnection *gc, const char *psm);
   PurpleConnection *gc = NULL;
-  
-  PURPLE_ACCOUNT( self, account );
   
   gc = purple_account_get_connection( account );
   
@@ -1138,6 +1134,40 @@ static VALUE run_one_loop( VALUE self ) {
   return Qnil;
 }
 
+static VALUE buddy_get_avatar (VALUE self){
+	
+	PurpleBuddy *buddy = NULL;
+	gconstpointer data;
+	size_t size;
+  
+	PURPLE_BUDDY( self, buddy );
+	PurpleBuddyIcon *icon =	purple_buddy_get_icon(buddy);
+	if (icon != NULL) {
+		size = purple_imgstore_get_size(icon);
+		data = purple_imgstore_get_data(icon);		
+		return rb_str_new2( purple_base64_encode(data, size) );	
+	} else {
+		return Qnil;
+	}
+	
+}
+
+static VALUE buddy_get_avatar_type (VALUE self){
+	
+	PurpleBuddy *buddy = NULL;
+	gconstpointer data;
+	size_t size;
+  
+	PURPLE_BUDDY( self, buddy );
+	PurpleBuddyIcon *icon =	purple_buddy_get_icon(buddy);
+	if (icon != NULL) {		
+		return rb_str_new2( purple_buddy_icon_get_extension(icon) );	
+	} else {
+		return Qnil;
+	}
+	
+}
+
 void Init_purple_ruby() 
 {
   CALL = rb_intern("call");
@@ -1211,6 +1241,8 @@ void Init_purple_ruby()
   cBuddy = rb_define_class_under(cPurpleRuby, "Buddy", rb_cObject);
   rb_define_method( cBuddy, "name", buddy_get_name, 0 );
   rb_define_method( cBuddy, "status", buddy_get_status, 0 );
+  rb_define_method( cBuddy, "avatar", buddy_get_avatar, 0 );
+  rb_define_method( cBuddy, "avatar_type", buddy_get_avatar_type, 0 );
   
   cStatus = rb_define_class_under( cPurpleRuby, "Status", rb_cObject );
   rb_define_const(cStatus, "STATUS_UNSET", INT2NUM(PURPLE_STATUS_UNSET));
@@ -1222,3 +1254,4 @@ void Init_purple_ruby()
   rb_define_const(cStatus, "STATUS_EXTENDED_AWAY", INT2NUM(PURPLE_STATUS_EXTENDED_AWAY));
   rb_define_const(cStatus, "STATUS_MOBILE", INT2NUM(PURPLE_STATUS_MOBILE));
 }
+
