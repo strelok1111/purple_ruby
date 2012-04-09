@@ -65,6 +65,7 @@
 
 // C to Ruby
 #define RB_BLIST_BUDDY(purple_buddy_pointer) Data_Wrap_Struct(cBuddy, NULL, NULL, purple_buddy_pointer)
+#define RB_ACCOUNT(purple_account_pointer) Data_Wrap_Struct(cAccount, NULL, NULL, purple_account_pointer)
 
 typedef struct _PurpleGLibIOClosure {
 	PurpleInputFunction function;
@@ -159,6 +160,7 @@ static VALUE signed_on_handler = Qnil;
 static VALUE signed_off_handler = Qnil;
 static VALUE connection_error_handler = Qnil;
 static VALUE notify_message_handler = Qnil;
+static VALUE user_info_handler = Qnil;
 static VALUE request_handler = Qnil;
 static VALUE blist_update_handler = Qnil;
 static VALUE blist_ready_handler = Qnil;
@@ -367,6 +369,25 @@ static void* request_action(const char *title, const char *primary, const char *
   return NULL;
 }
 
+static void notify_user_info(PurpleConnection *gc, const char *who, PurpleNotifyUserInfo *user_info){
+	PurpleAccount* account =	purple_connection_get_account (gc);
+	PurpleBuddy* buddy = purple_find_buddy (account, who);
+	if(user_info_handler != Qnil){
+		VALUE args[2];
+		args[0] = RB_BLIST_BUDDY( buddy );
+		GList *l;
+		VALUE hash = rb_hash_new();
+		for (l = purple_notify_user_info_get_entries(user_info); l != NULL; l = l->next) {
+			//PurpleNotifyUserInfoEntry *user_info_entry = l->data;			
+			if (purple_notify_user_info_entry_get_label(l->data) && purple_notify_user_info_entry_get_value(l->data)){
+				rb_hash_aset(hash, rb_str_new2(purple_notify_user_info_entry_get_label(l->data)), rb_str_new2(purple_notify_user_info_entry_get_value(l->data)));
+			}
+		}
+		args[1] = hash;
+		rb_funcall2(user_info_handler, CALL, 2, args);	
+	}
+}
+
 static PurpleRequestUiOps request_ops =
 {
 	NULL,           /*request_input*/
@@ -390,7 +411,7 @@ static PurpleNotifyUiOps notify_ops =
   NULL,           /*notify_formatted*/
   NULL,           /*notify_searchresults*/
   NULL,           /*notify_searchresults_new_rows*/
-  NULL,           /*notify_userinfo*/
+  notify_user_info,           /*notify_userinfo*/
   NULL,           /*notify_uri*/
   NULL,           /*close_notify*/
   NULL,
@@ -476,6 +497,13 @@ static VALUE init(int argc, VALUE* argv, VALUE self)
   purple_pounces_load();
 
   return Qnil;
+}
+
+static VALUE watch_blist_user_info(VALUE self)
+{
+  purple_notify_set_ui_ops(&notify_ops);
+  set_callback(&user_info_handler, "user_info_handler");
+  return user_info_handler;
 }
 
 static VALUE watch_incoming_im(VALUE self)
@@ -1152,6 +1180,16 @@ static VALUE buddy_get_avatar (VALUE self){
 	
 }
 
+static VALUE buddy_get_info (VALUE self){
+	
+	PurpleBuddy *buddy = NULL;
+	PURPLE_BUDDY( self, buddy );
+	PurpleAccount *account = buddy->account;
+	PurpleConnection *gc = purple_account_get_connection (account);
+	serv_get_info(gc, purple_buddy_get_name( buddy ));
+	return Qnil;
+}
+
 static VALUE buddy_get_avatar_type (VALUE self){
 	
 	PurpleBuddy *buddy = NULL;
@@ -1168,6 +1206,14 @@ static VALUE buddy_get_avatar_type (VALUE self){
 	
 }
 
+static VALUE buddy_get_account (VALUE self){
+	
+	PurpleBuddy *buddy = NULL;
+	PURPLE_BUDDY( self, buddy );
+	return RB_ACCOUNT(buddy->account);
+	
+}
+
 void Init_purple_ruby() 
 {
   CALL = rb_intern("call");
@@ -1175,6 +1221,7 @@ void Init_purple_ruby()
   cPurpleRuby = rb_define_class("PurpleRuby", rb_cObject);
   rb_define_singleton_method(cPurpleRuby, "init", init, -1);
   rb_define_singleton_method(cPurpleRuby, "list_protocols", list_protocols, 0);
+  rb_define_singleton_method(cPurpleRuby, "watch_blist_user_info", watch_blist_user_info, 0);
   rb_define_singleton_method(cPurpleRuby, "watch_signed_on_event", watch_signed_on_event, 0);
   rb_define_singleton_method(cPurpleRuby, "watch_signed_off_event", watch_signed_off_event, 0);
   rb_define_singleton_method(cPurpleRuby, "watch_connection_error", watch_connection_error, 0);
@@ -1242,6 +1289,8 @@ void Init_purple_ruby()
   rb_define_method( cBuddy, "name", buddy_get_name, 0 );
   rb_define_method( cBuddy, "status", buddy_get_status, 0 );
   rb_define_method( cBuddy, "avatar", buddy_get_avatar, 0 );
+  rb_define_method( cBuddy, "get_info", buddy_get_info, 0 );
+  rb_define_method( cBuddy, "account", buddy_get_account, 0 );
   rb_define_method( cBuddy, "avatar_type", buddy_get_avatar_type, 0 );
   
   cStatus = rb_define_class_under( cPurpleRuby, "Status", rb_cObject );
