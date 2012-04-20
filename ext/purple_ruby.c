@@ -815,6 +815,14 @@ static VALUE username(VALUE self)
   return rb_str_new2(purple_account_get_username(account));
 }
 
+static VALUE display_name(VALUE self)
+{
+  PurpleAccount *account;
+  Data_Get_Struct(self, PurpleAccount, account);
+  return rb_str_new2(purple_account_get_name_for_display(account));
+}
+
+
 static VALUE protocol_id(VALUE self)
 {
   PurpleAccount *account;
@@ -1094,6 +1102,14 @@ static VALUE buddy_get_status( VALUE self ) {
   return INT2NUM( purple_status_type_get_primitive( type ) );
 }
 
+static VALUE buddy_get_alias( VALUE self ) {
+  PurpleBuddy *buddy = NULL;
+  
+  PURPLE_BUDDY( self, buddy );
+  
+  return rb_str_new2( purple_buddy_get_alias( buddy ));
+}
+
 static gboolean call_rb_block_false( gpointer data ) {
   VALUE block = data;
   rb_funcall( block, CALL, 0, 0 );
@@ -1283,6 +1299,7 @@ void Init_purple_ruby()
   rb_define_method(cAccount, "remove_buddy", remove_buddy, 1);
   rb_define_method(cAccount, "has_buddy?", has_buddy, 1);
   rb_define_method(cAccount, "delete", acc_delete, 0);
+  rb_define_method(cAccount, "display_name", display_name, 0);
   rb_define_method(cAccount, "logout", logout, 0);
   
   cBuddy = rb_define_class_under(cPurpleRuby, "Buddy", rb_cObject);
@@ -1292,6 +1309,8 @@ void Init_purple_ruby()
   rb_define_method( cBuddy, "get_info", buddy_get_info, 0 );
   rb_define_method( cBuddy, "account", buddy_get_account, 0 );
   rb_define_method( cBuddy, "avatar_type", buddy_get_avatar_type, 0 );
+  rb_define_method( cBuddy, "alias", buddy_get_alias, 0 );
+
   
   cStatus = rb_define_class_under( cPurpleRuby, "Status", rb_cObject );
   rb_define_const(cStatus, "STATUS_UNSET", INT2NUM(PURPLE_STATUS_UNSET));
