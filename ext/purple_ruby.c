@@ -1165,15 +1165,12 @@ static VALUE run_one_loop( VALUE self ) {
 static VALUE buddy_get_avatar (VALUE self){
 	
 	PurpleBuddy *buddy = NULL;
-	gconstpointer data;
-	size_t size;
-  
 	PURPLE_BUDDY( self, buddy );
 	PurpleBuddyIcon *icon =	purple_buddy_get_icon(buddy);
 	if (icon != NULL) {
-		size = purple_imgstore_get_size(icon);
-		data = purple_imgstore_get_data(icon);		
-		return rb_str_new2( purple_base64_encode(data, size) );	
+		size_t size = NULL;
+		gconstpointer data = purple_buddy_icon_get_data(icon, &size);	
+		return rb_str_new(data, size);
 	} else {
 		return Qnil;
 	}
